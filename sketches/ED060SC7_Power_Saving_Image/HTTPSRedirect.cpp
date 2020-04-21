@@ -1,4 +1,4 @@
-/*  HTTPS on esp32 with follow redirects, chunked encoding support
+/*  HTTPS on ESP8266 with follow redirects, chunked encoding support
  *  Version 2.1
  *  Author: Sujay Phadke
  *  Github: @electronicsguy
