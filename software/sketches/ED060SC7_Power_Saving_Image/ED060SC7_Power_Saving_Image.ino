@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include "HTTPSRedirect.h"
+#include "SPIFFS.h"
 #include "DebugMacros.h"
 #include <TJpg_Decoder.h>
 #include <Inkplate.h>
@@ -26,7 +27,7 @@ const char* password = "???"; // your network password
 
 const char* host = "script.google.com";
 // Replace with your own script id to make server side changes
-const char *GScriptId = "?";
+const char *GScriptId = "???";
 const int httpsPort = 443;
 
 // certificate for https://google.com
@@ -102,20 +103,32 @@ String text = "";
 String img_url = "";
 
 float batVoltage = 0.00;
+bool pgood = 0;
+bool pchg = 0;
+int system_state = 0;
+
+#define STATE_DISCHARGING 0
+#define STATE_CHARGING 1
+#define STATE_LOW_BATTERY 2
+
 int count = 0;
 HTTPSRedirect* client = nullptr;
 
-Inkplate display(INKPLATE_3BIT);
+Inkplate display(INKPLATE_4BIT);
 
 void setup() {
   Serial.begin(9600);
 
   display.begin();
   display.setRotation(1);
-  display.selectDisplayMode(INKPLATE_3BIT);
-  display.setTextColor(3, 7);
+  display.selectDisplayMode(INKPLATE_4BIT);
+  display.setTextColor(7, 15);
   display.setFont(&FreeSansBold18pt7b);
-
+	
+  if (!SPIFFS.begin()) {
+    DPRINTLN("SPIFFS initialisation failed!");
+    esp_deep_sleep_start();
+  }
   TJpgDec.setJpgScale(1);
   TJpgDec.setCallback(renderer);
 
@@ -139,15 +152,14 @@ void setup() {
     }
   }
   DPRINTLN();
-  DPRINTLN("WiFi connected");
-  DPRINTLN("IP address: ");
-  DPRINTLN(WiFi.localIP());
 
   // Use HTTPSRedirect class to create a new TLS connection
   client = new HTTPSRedirect(httpsPort);
   client->setPrintResponseBody(true);
   client->setContentTypeHeader("application/json");
   client->setCACert(rootCACertificateGoogle);
+  
+  DPRINTLN("SETUP COMPLETE");
 }
 
 void loop() {
@@ -166,6 +178,22 @@ void loop() {
       // Fetch values.
       batVoltage = doc["v"];
       count = doc["count"];
+	  pgood = doc["pgood"];
+	  pchg = doc["pchg"];
+	  
+	  if(!pchg){
+		system_state = STATE_CHARGING;
+	  }else{
+		if(!pgood){
+		
+		}else{
+		//Not connected to power supply
+		
+		if(batVoltage<3.50){
+			system_state = STATE_LOW_BATTERY;
+		}
+		}
+	  }
       DPRINT("Connecting to ");
       DPRINTLN(host);
 
@@ -251,15 +279,23 @@ void loop() {
                         DPRINTLN("Size [E] w: " + String(wd) + ", h: " + String(hd));
                         if (wd > 600 & hd > 800) {
                           TJpgDec.drawJpg(0, 0, buff, len);
-                          display.setCursor(0, 50);
+						  display.setTextColor(5,15);
+						  display.setCursor(0, 53);
                           display.setFont(&FreeSansBold18pt7b);
+                          display.println(title);
+                          display.setCursor(0, 50);
+                          display.setTextColor(12,15);
                           display.println(title);
                           //drawCentreString(title);
                         } else {
                           DPRINTLN("Too small");
                           TJpgDec.drawJpg(0, 0, buff, len);
+                          display.setTextColor(5,15);
+						  display.setCursor(0, 53);
                           display.setFont(&FreeSansBold18pt7b);
+                          display.println(title);
                           display.setCursor(0, 50);
+                          display.setTextColor(12,15);
                           display.println(title);
                         }
                         free(buff);
@@ -277,16 +313,21 @@ void loop() {
                 https.end();
               } else {
                 Serial.printf("[HTTPS] Unable to connect\n");
+				display.setTextColor(0, 15);
+				display.setCursor(0, 50);
+				display.setFont(&FreeSansBold18pt7b);
+				display.println(F("Network error"));
+				display.setCursor(0, 150);
+				display.setFont(&FreeSans12pt7b);
+				display.println(F("Unable to connect"));
               }
-
-              // End extra scoping block
             }
           }
         }
         delete image_client;
       } else {
         //Text type
-        display.setTextColor(0, 7);
+        display.setTextColor(0, 15);
         display.setCursor(0, 50);
         display.setFont(&FreeSansBold18pt7b);
         display.println(title);
@@ -294,24 +335,46 @@ void loop() {
         display.setFont(&FreeSans12pt7b);
         display.println(text);
       }
+	  display.setTextColor(0, 15);
       display.setFont(&FreeSansBold18pt7b);
       display.setCursor(100 + random(100) , 700);
       display.print(String(batVoltage) + "V");
       display.setCursor(400 + random(100), 700);
       display.print(String(count));
+	  
+	  render_state();
+	  
       display.display();
       jsonInput = "";
       esp_deep_sleep_start();
     }
   }
 }
-
+void render_state(){
+	if(system_state==STATE_CHARGING){
+		display.fillRoundRect(75, 725, 450, 64, 7);
+		display.fillRoundRect(75 + 4, 725 + 4, 450 - 8, 64 - 8, 15);
+		TJpgDec.drawFsJpg(90, 725 + 8, "/charging.jpg");
+		display.setTextColor(0, 15);
+		display.setFont(&FreeSansBold18pt7b);
+        display.setCursor(420, 740);
+        display.print(F("Charging"));
+	}else if(system_state==STATE_LOW_BATTERY){
+		display.fillRoundRect(75, 725, 450, 64, 7);
+		display.fillRoundRect(75 + 4, 725 + 4, 450 - 8, 64 - 8, 15);
+		TJpgDec.drawFsJpg(90, 725 + 8, "/low_battery.jpg");
+		display.setTextColor(0, 15);
+		display.setFont(&FreeSansBold18pt7b);
+        display.setCursor(180, 740);
+        display.print(F("Low battery detected"));
+	}
+}
 bool renderer(int16_t x, int16_t y, uint16_t w, uint16_t h, uint8_t* bitmap)
 {
   for (int i = y; i < h + y; i++) {
     for (int j = x; j < w + x; j++) {
       uint8_t color = (bitmap[0] + bitmap[1] + bitmap[2]) / 3;
-      display.drawPixel(j, i, color / 32);
+      display.drawPixel(j, i, color / 16);
       bitmap += 3;
     }
   }

@@ -12,7 +12,7 @@
 #define PCHG 8 //PA1 Low to indicate charging
 #define ACCEL 2 //PA6
 
-#define SLEEP_TIME 3200
+#define SLEEP_TIME 3600
 
 int count = 0;
 const int max_rtc_count = SLEEP_TIME / 32;
@@ -115,7 +115,19 @@ void loop() { // run over and over
     digitalWrite(VBATCTRL, LOW);
     digitalWrite(BATOUTEN, HIGH); //Turning on ESP32
     Serial.begin(9600);
-    delay(5000);
+    bool wifi_connected = false;
+    int timeout_count = 0;
+    while (!wifi_connected) {
+      if(Serial.find("SETUP COMPLETE")) {
+          wifi_connected = true;
+      }
+      delay(100);
+      timeout_count++;
+      if (timeout_count>50) {
+        //exit
+        wifi_connected = true;
+      }
+    }
     Serial.println("test"); //Dumb text, first few characters not working?
     delay(100);
     Serial.println("");
@@ -130,7 +142,11 @@ void loop() { // run over and over
     Serial.print(", \"count\":");
     Serial.print(count);
     Serial.println("}");
-
+    Serial.end();
+    delay(200);
+    pinMode(VBATCTRL, INPUT);
+    pinMode(4, INPUT);
+    pinMode(5, INPUT);
     /*
       Serial.print("Volt: " + String(batVoltage) + ",");
       Serial.print(String(PCHG_INT_PIN));
@@ -150,7 +166,7 @@ void loop() { // run over and over
 
     //Serial.println(json);
     delay(15000);
-    Serial.end();
+
     /*if(!PGOOD_INT_PIN){
       //External input source available, keep it on
       digitalWrite(BATOUTEN, HIGH); //Remain on ESP32
@@ -158,11 +174,8 @@ void loop() { // run over and over
       digitalWrite(BATOUTEN, LOW); //Turning off ESP32
       }*/
     digitalWrite(BATOUTEN, LOW);
-    pinMode(4, INPUT);
-    pinMode(5, INPUT);
     pinMode(BATOUTEN, INPUT);
-    pinMode(VBATCTRL, INPUT);
-    delay(500);
+    delay(100);
     count++;
     INT_FLAG = 0;
   }
